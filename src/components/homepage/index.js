@@ -1,0 +1,10 @@
+export { default as HeroSection } from './HeroSection';
+    export { default as HowItWorksSection } from './HowItWorksSection';
+    export { default as AdvantagesSection } from './AdvantagesSection';
+    export { default as AcceptedItemsPreviewSection } from './AcceptedItemsPreviewSection';
+    export { default as CallToActionSection } from './CallToActionSection';
+    export { default as ImageSlider } from './ImageSlider';
+    export { default as TestimonialSection } from './TestimonialSection';
+    export { default as FaqSection } from './FaqSection';
+    export { default as SaveStressSection } from './SaveStressSection';
+    export { default as DeliveryVisualisationSection } from './DeliveryVisualisationSection';
