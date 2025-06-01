@@ -1,241 +1,224 @@
+// src/hooks/usePdfUpload.jsx
+
 import { useState, useCallback } from 'react';
-    import { supabase } from '@/lib/supabaseClient';
-    import { generatePurchaseConfirmationHTML } from '@/lib/pdfGenerator';
-    import { getPdfStyles } from '@/lib/pdfStyles';
-    import { useToast } from '@/components/ui/use-toast';
-    import { logAdminEvent } from '@/lib/utils';
-    import html2pdf from 'html2pdf.js';
+import { supabase } from '@/lib/supabaseClient';
+import { generatePdfExportHtml } from '@/lib/pdfExportHtml'; 
+import { useToast } from '@/components/ui/use-toast';
+import html2pdf from 'html2pdf.js';
 
-    const waitForAllImagesInContainer = (containerElement) => {
-      return new Promise((resolve) => {
-        const images = Array.from(containerElement.querySelectorAll('img'));
-        let loadedImagesCount = 0;
-        const totalImages = images.length;
+/**
+ * Warte darauf, dass alle <img> im Container fertig geladen sind,
+ * bevor der PDF-Export beginnt.
+ */
+const waitForAllImagesInContainer = (containerElement) => {
+  return new Promise((resolve) => {
+    const images = Array.from(containerElement.querySelectorAll('img'));
+    let loadedImagesCount = 0;
+    const totalImages = images.length;
 
-        if (totalImages === 0) {
-          console.log("usePdfUpload: waitForAllImages: No images found in container.");
-          resolve();
-          return;
-        }
-        console.log(`usePdfUpload: waitForAllImages: Found ${totalImages} images. Waiting for them to load...`);
+    if (totalImages === 0) {
+      resolve();
+      return;
+    }
 
-        images.forEach((img) => {
-          if (img.complete && img.naturalHeight !== 0 && img.naturalWidth !== 0) {
-            loadedImagesCount++;
-            console.log(`usePdfUpload: waitForAllImages: Image ${img.src ? img.src.substring(0,50) : 'N/A'} already complete.`);
-          } else {
-            const imgLoadHandler = () => {
-              loadedImagesCount++;
-              console.log(`usePdfUpload: waitForAllImages: Image ${img.src ? img.src.substring(0,50) : 'N/A'} loaded.`);
-              if (loadedImagesCount === totalImages) {
-                console.log("usePdfUpload: waitForAllImages: All images loaded.");
-                resolve();
-              }
-              img.removeEventListener('load', imgLoadHandler);
-              img.removeEventListener('error', imgErrorHandler);
-            };
-            const imgErrorHandler = () => {
-              console.warn(`usePdfUpload: waitForAllImages: Image failed to load: ${img.src ? img.src.substring(0,50) : 'N/A'}. Proceeding anyway.`);
-              loadedImagesCount++;
-              if (loadedImagesCount === totalImages) {
-                console.log("usePdfUpload: waitForAllImages: All images processed (some may have failed).");
-                resolve();
-              }
-              img.removeEventListener('load', imgLoadHandler);
-              img.removeEventListener('error', imgErrorHandler);
-            };
-            img.addEventListener('load', imgLoadHandler);
-            img.addEventListener('error', imgErrorHandler);
-          }
+    images.forEach((img) => {
+      if (img.complete && img.naturalWidth !== 0 && img.naturalHeight !== 0) {
+        loadedImagesCount++;
+        if (loadedImagesCount === totalImages) resolve();
+      } else {
+        const markLoaded = () => {
+          loadedImagesCount++;
+          if (loadedImagesCount === totalImages) resolve();
+          img.removeEventListener('load', markLoaded);
+          img.removeEventListener('error', markLoaded);
+        };
+        img.addEventListener('load', markLoaded);
+        img.addEventListener('error', markLoaded);
+      }
+    });
+  });
+};
+
+export const usePdfUpload = () => {
+  const { toast } = useToast();
+  const [pdfUploadStatus, setPdfUploadStatus] = useState({
+    uploading: false,
+    success: false,
+    error: null,
+    url: null,
+  });
+
+  /**
+   * Generiert das PDF für den Begleitschein und lädt es
+   * dann in den Supabase-Bucket hoch. Gibt die Public-URL zurück.
+   *
+   * @param {Object} confirmationData – alle Formular-Daten aus der Bestätigung
+   * @param {string} ankaufsNummer    – eindeutige Ankaufsnummer
+   * @param {string} qrCodeDataURL    – Data-URL des QR-Codes (falls vorhanden)
+   */
+  const generateAndUploadPdf = useCallback(
+    async (confirmationData, ankaufsNummer, qrCodeDataURL) => {
+      // 1. Basis-Validierung
+      if (!confirmationData || !ankaufsNummer) {
+        const msg = 'PDF Upload: Fehlende Bestätigungsdaten oder Ankaufsnummer.';
+        console.warn(msg, { ankaufsNummer });
+        setPdfUploadStatus((prev) => ({
+          ...prev,
+          error: 'Fehlende Daten für PDF-Generierung.',
+        }));
+        return null;
+      }
+
+      // 2. Verhindern, dass bestehender Upload mehrfach getriggert wird
+      if (pdfUploadStatus.uploading) {
+        return pdfUploadStatus.url;
+      }
+      if (pdfUploadStatus.success && pdfUploadStatus.url) {
+        return pdfUploadStatus.url;
+      }
+
+      setPdfUploadStatus({ uploading: true, success: false, error: null, url: null });
+      let tempContainer = null;
+
+      try {
+        // 3. Container erstellen und komplett mit Inline-Styles befüllen
+        tempContainer = document.createElement('div');
+        tempContainer.id = 'pdf_temp_container';
+        Object.assign(tempContainer.style, {
+          position: 'absolute',
+          top: '-10000px',   // Offscreen, aber renderbar
+          left: '0px',
+          width: '794px',    // A4-Breite in px (ca. 210 mm × 96 dpi ≈ 794 px)
+          height: '1123px',  // A4-Höhe in px  (ca. 297 mm × 96 dpi ≈ 1123 px)
+          backgroundColor: '#FFFFFF',
+          overflow: 'visible',
         });
 
-        if (loadedImagesCount === totalImages) {
-          console.log("usePdfUpload: waitForAllImages: All images were already complete.");
-          resolve();
+        // 4. vollständiges HTML für den Begleitschein erzeugen
+        const now = new Date();
+        const dateString = now.toLocaleDateString('de-DE', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+        // Hole alle benötigten Felder aus confirmationData (ersetze nach Bedarf!)
+        const {
+          name = '',
+          email = '',
+          address = '',
+          totalWeight = 0,
+        } = confirmationData;
+
+        const htmlContent = generatePdfExportHtml({
+          ankaufsNummer,
+          name,
+          email,
+          address,
+          totalWeight,
+          date: dateString,
+          qrCodeDataURL: qrCodeDataURL || '',
+          onlyBody: false, // wir wollen komplette TAGS inkl. <html><head>…</body>
+        });
+
+        tempContainer.innerHTML = htmlContent;
+        document.body.appendChild(tempContainer);
+
+        // 5. Auf Bilder warten (z.B. QR-Code oder sonstige Grafiken)
+        await waitForAllImagesInContainer(tempContainer);
+
+        // 6. html2pdf.js-Optionen definieren
+        const options = {
+          margin: 0,
+          filename: `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`,
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#FFFFFF',
+            width: 794,
+            height: 1123,
+            logging: false,
+          },
+          jsPDF: { unit: 'pt', format: [794, 1123], orientation: 'portrait' },
+        };
+
+        // 7. PDF-Blob generieren (await ist entscheidend)
+        const pdfBlob = await html2pdf().from(tempContainer).set(options).outputPdf('blob');
+
+        // 8. Container sofort entfernen (nach Blob-Erzeugung)
+        if (tempContainer && document.body.contains(tempContainer)) {
+          document.body.removeChild(tempContainer);
+          tempContainer = null;
         }
-      });
-    };
 
-
-    export const usePdfUpload = () => {
-      const { toast } = useToast();
-      const [pdfUploadStatus, setPdfUploadStatus] = useState({
-        uploading: false,
-        success: false,
-        error: null,
-        url: null,
-      });
-
-      const generateAndUploadPdf = useCallback(async (confirmationData, ankaufsNummer, qrCodeDataURL) => {
-        if (!confirmationData || !ankaufsNummer) {
-          const missingDataMsg = "PDF Upload: Missing confirmationData or ankaufsNummer.";
-          console.warn(missingDataMsg, { ankaufsNummer: ankaufsNummer || 'N/A' });
-          setPdfUploadStatus(prev => ({ ...prev, error: "Fehlende Daten für PDF-Generierung."}));
-          logAdminEvent('error', 'usePdfUpload', missingDataMsg, { ankaufsNummer: ankaufsNummer || 'N/A' }, ankaufsNummer || 'N/A');
-          return null;
-        }
-        
-        let finalQrCodeDataURL = qrCodeDataURL;
-        if (!qrCodeDataURL || !qrCodeDataURL.startsWith('data:image/png') || qrCodeDataURL.length < 50) {
-            const qrMsg = "PDF Upload: QR Code Data URL is missing, invalid, or too short. PDF will be generated without QR code.";
-            console.warn(qrMsg, { ankaufsNummer, qrCodeDataURLLength: qrCodeDataURL ? qrCodeDataURL.length : 'undefined' });
-            logAdminEvent('warning', 'usePdfUpload', qrMsg, { ankaufsNummer, qrCodeDataURLLength: qrCodeDataURL ? qrCodeDataURL.length : 'undefined' }, ankaufsNummer);
-            finalQrCodeDataURL = ''; 
-        } else {
-            console.log("usePdfUpload: Valid QR Code Data URL received for ankaufsNummer:", ankaufsNummer, `Length: ${qrCodeDataURL.length}`);
+        // 9. Minimaler Check: Blob-Größe muss größer als ein paar KB sein
+        if (!pdfBlob || pdfBlob.size < 2000) {
+          console.warn(
+            'usePdfUpload: PDF-Blob ist sehr klein (möglicherweise leer).',
+            { size: pdfBlob?.size }
+          );
         }
 
-        if (pdfUploadStatus.uploading) {
-          console.log("usePdfUpload: PDF Upload läuft bereits für Ankaufsnummer:", ankaufsNummer);
-          return pdfUploadStatus.url; 
-        }
-        if (pdfUploadStatus.success && pdfUploadStatus.url) {
-            console.log("usePdfUpload: PDF bereits erfolgreich hochgeladen für Ankaufsnummer:", ankaufsNummer);
-            return pdfUploadStatus.url;
-        }
-
-        setPdfUploadStatus({ uploading: true, success: false, error: null, url: null });
-        let tempPdfContainer = null; 
-        console.log(`usePdfUpload: Starting PDF generation for ${ankaufsNummer}.`);
-
-        try {
-          tempPdfContainer = document.createElement('div');
-          tempPdfContainer.id = '__pdfExport';
-
-
-          const styleTag = document.createElement('style');
-          styleTag.innerHTML = getPdfStyles(); 
-          tempPdfContainer.appendChild(styleTag);
-          
-          
-          const htmlContentForContainer = generatePurchaseConfirmationHTML({ ...confirmationData, qrCodeDataURL: finalQrCodeDataURL }, true); 
-          
-          
-          const contentWrapper = document.createElement('div');
-          contentWrapper.innerHTML = htmlContentForContainer;
-          tempPdfContainer.appendChild(contentWrapper);
-          
-          Object.assign(tempPdfContainer.style, {
-            width: '794px', 
-            height: '1123px', 
-            backgroundColor: '#ffffff',
-            overflow: 'visible',
-            position: 'absolute',
-            top: '-9999px',
-            left: '0px' 
+        // 10. PDF-Blob in Supabase-Bucket hochladen
+        const fileName = `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
+        const { error: uploadError } = await supabase.storage
+          .from('lieferschein')
+          .upload(fileName, pdfBlob, {
+            contentType: 'application/pdf',
+            upsert: true,
           });
-          document.body.appendChild(tempPdfContainer);
-          console.log(`usePdfUpload: Temporary container for ${ankaufsNummer} appended to body.`);
-          
-          await waitForAllImagesInContainer(tempPdfContainer);
-          console.log(`usePdfUpload: Images awaited for ${ankaufsNummer}.`);
-          
-          
-          const opt = {
-            margin:       10, 
-            filename:     `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { 
-              backgroundColor: '#ffffff',
-              scale: 2, 
-              useCORS: true,
-              allowTaint: true, 
-              width: tempPdfContainer.scrollWidth,
-              height: tempPdfContainer.scrollHeight,
-              removeContainer: true, 
-              logging: true, 
-              scrollX: 0,
-              scrollY: 0,
-              letterRendering: true, 
-              foreignObjectRendering: true,
-              onclone: (clonedDoc) => {
-                console.log(`usePdfUpload: html2canvas onclone: Document cloned for ${ankaufsNummer}.`);
-                const qrImg = clonedDoc.querySelector('.qr-code-container img');
-                if (qrImg) {
-                    console.log(`usePdfUpload: html2canvas onclone: QR image found in cloned doc. Src: ${qrImg.src ? qrImg.src.substring(0,100) + '...' : 'No src'}`);
-                    console.log(`usePdfUpload: html2canvas onclone: QR image naturalWidth: ${qrImg.naturalWidth}, naturalHeight: ${qrImg.naturalHeight}, complete: ${qrImg.complete}`);
-                } else {
-                    console.warn(`usePdfUpload: html2canvas onclone: QR image NOT found in cloned doc for ${ankaufsNummer}. This is expected if finalQrCodeDataURL was empty.`);
-                }
-              }
-            },
-            jsPDF:        { unit: 'pt', format: 'a4', orientation: 'portrait' }
-          };
 
-          const pdfBlob = await html2pdf().from(tempPdfContainer).set(opt).outputPdf('blob');
-          console.log(`usePdfUpload: PDF blob generated for ${ankaufsNummer}. Size: ${pdfBlob.size} bytes.`);
-          
-
-          if (tempPdfContainer && document.body.contains(tempPdfContainer)) { 
-            document.body.removeChild(tempPdfContainer);
-            tempPdfContainer = null; 
-            console.log(`usePdfUpload: Temporary container (for ${ankaufsNummer}) removed from body (after blob generation).`);
-          }
-
-          if (pdfBlob.size < 1000 && finalQrCodeDataURL) { 
-            console.warn(`usePdfUpload: PDF blob size is very small for ${ankaufsNummer} (${pdfBlob.size} bytes) despite having a QR code. It might be blank.`);
-            logAdminEvent('warning', 'usePdfUpload', `Generated PDF blob size is suspiciously small for ${ankaufsNummer} (with QR)`, { size: pdfBlob.size }, ankaufsNummer);
-          } else if (pdfBlob.size < 500 && !finalQrCodeDataURL) {
-             console.warn(`usePdfUpload: PDF blob size is very small for ${ankaufsNummer} (${pdfBlob.size} bytes) (no QR). It might be blank.`);
-             logAdminEvent('warning', 'usePdfUpload', `Generated PDF blob size is suspiciously small for ${ankaufsNummer} (no QR)`, { size: pdfBlob.size }, ankaufsNummer);
-          }
-          
-          const fileName = `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`;
-          
-          const { error: uploadError } = await supabase.storage
-            .from('lieferschein') 
-            .upload(fileName, pdfBlob, {
-              contentType: 'application/pdf',
-              upsert: true, 
-            });
-
-          if (uploadError) {
-            console.error(`usePdfUpload: Supabase storage upload error for ${ankaufsNummer}:`, uploadError);
-            throw new Error(`Supabase Storage: ${uploadError.message}`);
-          }
-          console.log(`usePdfUpload: PDF uploaded to Supabase for ${ankaufsNummer}.`);
-          
-          const { data: publicUrlData } = supabase.storage.from('lieferschein').getPublicUrl(fileName);
-          const publicPdfUrl = publicUrlData?.publicUrl;
-
-          if (!publicPdfUrl) {
-            console.error(`usePdfUpload: Failed to get public URL for PDF for ${ankaufsNummer}:`, publicUrlData);
-            throw new Error('Konnte keine öffentliche URL für das PDF erhalten.');
-          }
-
-          const { error: dbUpdateError } = await supabase
-            .from('ankauf_requests')
-            .update({ pdf_url: publicPdfUrl })
-            .eq('ankaufs_nummer', ankaufsNummer);
-
-          if (dbUpdateError) {
-            console.error(`usePdfUpload: Supabase DB update error (pdf_url) for ${ankaufsNummer}:`, dbUpdateError);
-            throw new Error(`DB Update: ${dbUpdateError.message}`);
-          }
-          
-          setPdfUploadStatus({ uploading: false, success: true, error: null, url: publicPdfUrl });
-          logAdminEvent('info', 'usePdfUpload', `PDF successfully uploaded for ${ankaufsNummer}`, { url: publicPdfUrl }, ankaufsNummer);
-          console.log(`usePdfUpload: PDF process fully completed for ${ankaufsNummer}. URL: ${publicPdfUrl}`);
-          return publicPdfUrl;
-
-        } catch (error) {
-          console.error(`usePdfUpload: Error in generateAndUploadPdf (client-side) for ${ankaufsNummer}:`, error);
-          const errorMessage = error.message || 'Unbekannter Fehler beim PDF-Upload.';
-          setPdfUploadStatus({ uploading: false, success: false, error: errorMessage, url: null });
-          logAdminEvent('error', 'usePdfUpload', `PDF upload failed for ${ankaufsNummer}: ${errorMessage}`, { error: error.stack }, ankaufsNummer);
-          toast({
-            title: 'Fehler beim PDF-Upload',
-            description: 'Der Begleitschein konnte nicht als PDF hochgeladen werden. Unser Team wurde informiert.',
-            variant: 'destructive',
-          });
-          return null;
-        } finally {
-           if (tempPdfContainer && document.body.contains(tempPdfContainer)) { 
-            document.body.removeChild(tempPdfContainer);
-            console.log(`usePdfUpload: Temporary container (for ${ankaufsNummer}) removed from body in finally block.`);
-          }
+        if (uploadError) {
+          console.error('usePdfUpload: Supabase Upload Error:', uploadError);
+          throw new Error(uploadError.message);
         }
-      }, [toast, pdfUploadStatus.uploading, pdfUploadStatus.success, pdfUploadStatus.url]);
 
-      return { pdfUploadStatus, generateAndUploadPdf };
-    };
+        // 11. Public-URL abrufen
+        const { data: publicUrlData } = supabase.storage.from('lieferschein').getPublicUrl(fileName);
+        const publicPdfUrl = publicUrlData?.publicUrl;
+        if (!publicPdfUrl) {
+          throw new Error('usePdfUpload: Konnte keine öffentliche URL für PDF erhalten.');
+        }
+
+        // 12. Datenbank aktualisieren (Spalte pdf_url in ankauf_requests)
+        const { error: dbError } = await supabase
+          .from('ankauf_requests')
+          .update({ pdf_url: publicPdfUrl })
+          .eq('ankaufs_nummer', ankaufsNummer);
+
+        if (dbError) {
+          console.error('usePdfUpload: Supabase DB-Update Error:', dbError);
+          throw new Error(dbError.message);
+        }
+
+        // 13. Status auf Erfolg setzen
+        setPdfUploadStatus({ uploading: false, success: true, error: null, url: publicPdfUrl });
+        return publicPdfUrl;
+      } catch (err) {
+        console.error('usePdfUpload: Fehler beim Generieren/Hochladen des PDF:', err);
+        setPdfUploadStatus({
+          uploading: false,
+          success: false,
+          error: err.message || 'Unbekannter Fehler beim PDF-Upload.',
+          url: null,
+        });
+        toast({
+          title: 'Fehler beim Begleitschein-Export',
+          description: err.message || 'Die PDF-Datei konnte nicht erstellt werden.',
+          variant: 'destructive',
+        });
+        return null;
+      } finally {
+        // Sicherstellen, dass Container wirklich entfernt wird
+        if (tempContainer && document.body.contains(tempContainer)) {
+          document.body.removeChild(tempContainer);
+        }
+      }
+    },
+    [toast, pdfUploadStatus.uploading, pdfUploadStatus.success, pdfUploadStatus.url]
+  );
+
+  return { pdfUploadStatus, generateAndUploadPdf };
+};
