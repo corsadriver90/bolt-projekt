@@ -1,8 +1,8 @@
-// src/hooks/usePdfUpload.jsx
+// src/hooks/usePdfUpload.js
 
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { generatePdfExportHtml } from '@/lib/pdfExportHtml'; 
+import { generatePdfExportHtml } from '@/lib/pdfExportHtml';
 import { useToast } from '@/components/ui/use-toast';
 import html2pdf from 'html2pdf.js';
 
