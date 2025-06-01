@@ -4,26 +4,36 @@ import { getPage1Content, getPage2Content } from '@/lib/pdfContentGenerator';
 import { getPdfStyles } from '@/lib/pdfStyles';
 
 /**
- * Baut das vollständige HTML-Dokument für den Begleitschein.
+ * Baut das vollständige HTML-Dokument (mit <head><style>…) oder nur den Body-Block
+ * für den Begleitschein zusammen.
  *
  * @param {Object} data
- *   - submissionDate: ISO-String (z.B. "2025-06-01T12:34:56.789Z")
- *   - ankaufsNummer: String (z.B. "BR-12345678")
+ *   - submissionDate: ISO-String (z. B. "2025-06-01T12:34:56.789Z")
+ *   - ankaufsNummer: String (z. B. "BR-12345678")
  *   - name: String
  *   - email: String
  *   - address: String
  *   - totalWeight: Number
+ *   - cartItems: Array<{ category, weight, price }>
+ *   - totalPrice: Number
+ *   - deliveryType: String (z. B. "versand")
+ *   - iban: String (optional)
+ *   - paypal: String (optional)
+ *   - pickupDetails: { date, time, notes } (optional)
+ *   - selectedTimeSlot: String (optional)
+ *   - deliveryDate: ISO-String (optional)
+ *   - selfDeliveryNotes: String (optional)
  *   - qrCodeDataURL: String (Data-URL des QR-Codes)
- *   - (ggf. weitere Felder, die getPage1Content/getPage2Content nutzen)
  * @param {'bodyContent'|'fullDocument'} outputType
- *   Wenn 'bodyContent', wird nur der <body>-Block zurückgegeben. Bei 'fullDocument'
- *   wird das komplette <!DOCTYPE html>…-Dokument inkl. Inline-Styles gebaut.
+ *   - 'bodyContent': nur den reinen `<body>…</body>`-Block
+ *   - 'fullDocument': vollständiges `<!DOCTYPE html>…</html>`
  */
 export const generatePurchaseConfirmationHTML = (data, outputType = 'fullDocument') => {
   const { submissionDate, ankaufsNummer: providedAnkaufsNummer } = data;
   const ankaufsNummer =
     providedAnkaufsNummer ||
     `BR-${new Date(submissionDate).getTime().toString().slice(-8)}`;
+
   const formattedDate = new Date(submissionDate).toLocaleDateString('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -53,7 +63,7 @@ export const generatePurchaseConfirmationHTML = (data, outputType = 'fullDocumen
     <html lang="de">
       <head>
         <meta charset="UTF-8">
-        <title>Begleitschein - ${ankaufsNummer}</title>
+        <title>Begleitschein – ${ankaufsNummer}</title>
         <style>
           ${getPdfStyles()}
         </style>
