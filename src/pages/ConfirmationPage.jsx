@@ -10,7 +10,7 @@ import BegleitscheinSection from '@/components/confirmation/BegleitscheinSection
 import ReturnLabelSection from '@/components/confirmation/ReturnLabelSection';
 import ConfirmationDetails from '@/components/confirmation/ConfirmationDetails';
 import { QRCodeCanvas } from 'qrcode.react';
-import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // Achte auf .js, wenn die Datei so heißt
+import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // <-- unbedingt .js am Ende!
 import { logAdminEvent } from '@/lib/utils';
 
 const ConfirmationPage = () => {
@@ -167,8 +167,7 @@ const ConfirmationPage = () => {
       );
       setPdfTriggered(true);
 
-      // Wir übergeben nur die benötigten Felder aus confirmationData:
-      // Passe diese Zeile an, falls deine confirmationData andere Feldnamen hat.
+      // Übergabe der Felder an generateAndUploadPdf
       generateAndUploadPdf(
         {
           name: confirmationData.name,
