@@ -10,7 +10,7 @@ import BegleitscheinSection from '@/components/confirmation/BegleitscheinSection
 import ReturnLabelSection from '@/components/confirmation/ReturnLabelSection';
 import ConfirmationDetails from '@/components/confirmation/ConfirmationDetails';
 import { QRCodeCanvas } from 'qrcode.react';
-import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // <- hier .js verwenden
+import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // <- Exakte Endung .js
 import { logAdminEvent } from '@/lib/utils';
 
 const ConfirmationPage = () => {
@@ -26,15 +26,17 @@ const ConfirmationPage = () => {
   // eslint-disable-next-line no-unused-vars
   const [numberOfGeneratedLabels, setNumberOfGeneratedLabels] = useState(0);
 
-  // QR-Code Data-URL für E-Mail und PDF
+  // Data-URL des QR-Codes für E-Mail und PDF
   const [qrCodeDataURLForEmailAndPdf, setQrCodeDataURLForEmailAndPdf] = useState('');
   const [isQrReadyForPdf, setIsQrReadyForPdf] = useState(false);
 
-  // Damit wir PDF-Upload nicht mehrfach triggert
+  // Damit wir den PDF-Upload nicht mehrfach auslösen
   const [pdfTriggered, setPdfTriggered] = useState(false);
 
+  // Importiert: Hook für PDF-Export & Upload
   const { pdfUploadStatus, generateAndUploadPdf } = usePdfUpload();
 
+  // Scroll nach oben, wenn die Seite geladen wird
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
@@ -77,7 +79,7 @@ const ConfirmationPage = () => {
     setIsLoading(false);
   }, [location.state]);
 
-  // QR-Code Data-URL aus verstecktem Canvas extrahieren
+  // QR-Code aus dem unsichtbaren Canvas extrahieren
   useEffect(() => {
     if (ankaufsNummer && !isQrReadyForPdf) {
       let attemptCount = 0;
@@ -153,7 +155,7 @@ const ConfirmationPage = () => {
     }
   }, [ankaufsNummer, isQrReadyForPdf]);
 
-  // Einmaliges Auslösen von PDF-Generierung & Upload, wenn alle Daten da sind
+  // Wenn alle Daten da sind und QR bereit ist: PDF einmalig erzeugen + hochladen
   useEffect(() => {
     if (
       confirmationData &&
@@ -173,15 +175,26 @@ const ConfirmationPage = () => {
       );
       setPdfTriggered(true);
 
-      // Übergabe aller benötigten Felder an generateAndUploadPdf:
+      // **Wichtig:** confirmationData MUSS hier alle Felder enthalten, die
+      // unser pdfContentGenerator erwartet (z. B. cartItems, totalWeight, totalPrice, deliveryType, etc.).
       generateAndUploadPdf(
         {
           submissionDate: confirmationData.submissionDate,
+          ankaufsNummer,
           name: confirmationData.name,
           email: confirmationData.email,
           address: confirmationData.address,
           totalWeight: confirmationData.totalWeight || 0,
-          // falls dein Template weitere Felder erwartet, hier ergänzen
+          cartItems: confirmationData.cartItems || [],
+          totalPrice: confirmationData.totalPrice || 0,
+          deliveryType: confirmationData.deliveryType || 'versand',
+          iban: confirmationData.iban || '',
+          paypal: confirmationData.paypal || '',
+          pickupDetails: confirmationData.pickupDetails || null,
+          selectedTimeSlot: confirmationData.selectedTimeSlot || '',
+          deliveryDate: confirmationData.deliveryDate || '',
+          selfDeliveryNotes: confirmationData.selfDeliveryNotes || '',
+          qrCodeDataURL: qrCodeDataURLForEmailAndPdf,
         },
         ankaufsNummer,
         qrCodeDataURLForEmailAndPdf
@@ -202,6 +215,8 @@ const ConfirmationPage = () => {
     setHasExistingLabel(labelExists);
     setNumberOfGeneratedLabels(count);
   }, []);
+
+  // --- JSX-Rendering ---
 
   if (isLoading) {
     return (
@@ -303,8 +318,7 @@ const ConfirmationPage = () => {
               )}
               {pdfUploadStatus.error && (
                 <p className="text-red-600 dark:text-red-400 text-sm">
-                  Fehler beim Erstellen des Begleitschein PDFs:{' '}
-                  {pdfUploadStatus.error}
+                  Fehler beim Erstellen des Begleitschein PDFs: {pdfUploadStatus.error}
                 </p>
               )}
             </div>
