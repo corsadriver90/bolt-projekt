@@ -1,6 +1,24 @@
+// src/lib/pdfGenerator.jsx
+
 import { getPage1Content, getPage2Content } from '@/lib/pdfContentGenerator';
 import { getPdfStyles } from '@/lib/pdfStyles';
 
+/**
+ * Baut das vollständige HTML-Dokument für den Begleitschein.
+ *
+ * @param {Object} data
+ *   - submissionDate: ISO-String (z.B. "2025-06-01T12:34:56.789Z")
+ *   - ankaufsNummer: String (z.B. "BR-12345678")
+ *   - name: String
+ *   - email: String
+ *   - address: String
+ *   - totalWeight: Number
+ *   - qrCodeDataURL: String (Data-URL des QR-Codes)
+ *   - (ggf. weitere Felder, die getPage1Content/getPage2Content nutzen)
+ * @param {'bodyContent'|'fullDocument'} outputType
+ *   Wenn 'bodyContent', wird nur der <body>-Block zurückgegeben. Bei 'fullDocument'
+ *   wird das komplette <!DOCTYPE html>…-Dokument inkl. Inline-Styles gebaut.
+ */
 export const generatePurchaseConfirmationHTML = (data, outputType = 'fullDocument') => {
   const { submissionDate, ankaufsNummer: providedAnkaufsNummer } = data;
   const ankaufsNummer =
@@ -33,16 +51,16 @@ export const generatePurchaseConfirmationHTML = (data, outputType = 'fullDocumen
   return `
     <!DOCTYPE html>
     <html lang="de">
-    <head>
-      <meta charset="UTF-8">
-      <title>Begleitschein - ${ankaufsNummer}</title>
-      <style>
-        ${getPdfStyles()}
-      </style>
-    </head>
-    <body>
-      ${bodyContent}
-    </body>
+      <head>
+        <meta charset="UTF-8">
+        <title>Begleitschein - ${ankaufsNummer}</title>
+        <style>
+          ${getPdfStyles()}
+        </style>
+      </head>
+      <body>
+        ${bodyContent}
+      </body>
     </html>
   `;
 };
