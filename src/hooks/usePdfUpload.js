@@ -58,6 +58,8 @@ export const usePdfUpload = () => {
    */
   const generateAndUploadPdf = useCallback(
     async (confirmationData, ankaufsNummer, qrCodeDataURL) => {
+      console.log('usePdfUpload: generateAndUploadPdf called with Ankaufsnummer:', ankaufsNummer);
+
       // 1. Basis-Validierung
       if (!confirmationData || !ankaufsNummer) {
         const msg = 'PDF Upload: Fehlende Bestätigungsdaten oder Ankaufsnummer.';
@@ -71,9 +73,11 @@ export const usePdfUpload = () => {
 
       // 2. Verhindern, dass bestehender Upload mehrfach getriggert wird
       if (pdfUploadStatus.uploading) {
+        console.log('usePdfUpload: Upload läuft bereits, breche ab.');
         return pdfUploadStatus.url;
       }
       if (pdfUploadStatus.success && pdfUploadStatus.url) {
+        console.log('usePdfUpload: Upload bereits erfolgreich, URL:', pdfUploadStatus.url);
         return pdfUploadStatus.url;
       }
 
@@ -81,6 +85,7 @@ export const usePdfUpload = () => {
       let tempContainer = null;
 
       try {
+        console.log('usePdfUpload: Erstelle temporären Container…');
         // 3. Container erstellen und komplett mit Inline-Styles befüllen
         tempContainer = document.createElement('div');
         tempContainer.id = 'pdf_temp_container';
@@ -112,6 +117,7 @@ export const usePdfUpload = () => {
           totalWeight = 0,
         } = confirmationData;
 
+        console.log('usePdfUpload: Generiere HTML via generatePdfExportHtml…');
         const htmlContent = generatePdfExportHtml({
           ankaufsNummer,
           name,
@@ -125,9 +131,11 @@ export const usePdfUpload = () => {
 
         tempContainer.innerHTML = htmlContent;
         document.body.appendChild(tempContainer);
+        console.log('usePdfUpload: Container ins DOM gehängt, warte auf Bilder…');
 
         // 5. Auf Bilder warten (z.B. QR-Code oder sonstige Grafiken)
         await waitForAllImagesInContainer(tempContainer);
+        console.log('usePdfUpload: Alle Bilder geladen, starte html2pdf…');
 
         // 6. html2pdf.js-Optionen definieren
         const options = {
@@ -146,11 +154,13 @@ export const usePdfUpload = () => {
 
         // 7. PDF-Blob generieren (await ist entscheidend)
         const pdfBlob = await html2pdf().from(tempContainer).set(options).outputPdf('blob');
+        console.log('usePdfUpload: PDF blob generated, Größe:', pdfBlob.size, 'bytes');
 
         // 8. Container sofort entfernen (nach Blob-Erzeugung)
         if (tempContainer && document.body.contains(tempContainer)) {
           document.body.removeChild(tempContainer);
           tempContainer = null;
+          console.log('usePdfUpload: Container entfernt.');
         }
 
         // 9. Minimaler Check: Blob-Größe muss größer als ein paar KB sein
@@ -162,6 +172,7 @@ export const usePdfUpload = () => {
         }
 
         // 10. PDF-Blob in Supabase-Bucket hochladen
+        console.log('usePdfUpload: Starte Upload zu Supabase…');
         const fileName = `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
         const { error: uploadError } = await supabase.storage
           .from('lieferschein')
@@ -174,6 +185,7 @@ export const usePdfUpload = () => {
           console.error('usePdfUpload: Supabase Upload Error:', uploadError);
           throw new Error(uploadError.message);
         }
+        console.log('usePdfUpload: Upload erfolgreich.');
 
         // 11. Public-URL abrufen
         const { data: publicUrlData } = supabase.storage.from('lieferschein').getPublicUrl(fileName);
@@ -181,8 +193,10 @@ export const usePdfUpload = () => {
         if (!publicPdfUrl) {
           throw new Error('usePdfUpload: Konnte keine öffentliche URL für PDF erhalten.');
         }
+        console.log('usePdfUpload: Public URL:', publicPdfUrl);
 
         // 12. Datenbank aktualisieren (Spalte pdf_url in ankauf_requests)
+        console.log('usePdfUpload: Aktualisiere Datenbank…');
         const { error: dbError } = await supabase
           .from('ankauf_requests')
           .update({ pdf_url: publicPdfUrl })
@@ -192,6 +206,7 @@ export const usePdfUpload = () => {
           console.error('usePdfUpload: Supabase DB-Update Error:', dbError);
           throw new Error(dbError.message);
         }
+        console.log('usePdfUpload: DB-Update erfolgreich.');
 
         // 13. Status auf Erfolg setzen
         setPdfUploadStatus({ uploading: false, success: true, error: null, url: publicPdfUrl });
