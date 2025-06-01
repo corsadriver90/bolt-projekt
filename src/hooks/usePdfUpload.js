@@ -7,16 +7,18 @@ import { useToast } from '@/components/ui/use-toast';
 import html2pdf from 'html2pdf.js';
 
 /**
- * Hilfsfunktion: Entfernt alle @import-Regeln aus einem CSS-String.
- * Beispiel: "@import url('https://fonts.googleapis.com/...');"
+ * Entfernt exakt alle @import url(...) …;‐Regeln aus einem CSS‐String,
+ * sodass html2pdf/html2canvas nicht versucht, Google‐Fonts & Co. extern nachzuladen.
  */
 const stripCssImports = (cssString) => {
-  return cssString.replace(/@import[^;]+;/g, '');
+  // Dieses Regex findet jede Zeile der Form "@import url(…);"
+  // und entfernt sie vollständig, auch wenn in der URL innerliche Semikolons stehen.
+  return cssString.replace(/@import\s+url\([^)]*\)\s*;/g, '');
 };
 
 /**
  * Wartet darauf, dass alle <img>-Elemente im Container fertig geladen sind,
- * bevor html2canvas den Screenshot anfertigt.
+ * bevor html2canvas das Rendering vornimmt.
  */
 const waitForAllImagesInContainer = (containerElement) => {
   return new Promise((resolve) => {
@@ -24,6 +26,7 @@ const waitForAllImagesInContainer = (containerElement) => {
     let loadedImagesCount = 0;
     const totalImages = images.length;
 
+    // Gibt sofort zurück, wenn keine Bilder vorhanden sind
     if (totalImages === 0) {
       resolve();
       return;
@@ -49,9 +52,10 @@ const waitForAllImagesInContainer = (containerElement) => {
 
 /**
  * Hook: usePdfUpload
- * - Erzeugt mit html2pdf.js einen PDF‐Begleitschein (zwei Seiten).
- * - Lädt den PDF-Blob in Supabase Storage (Bucket 'lieferschein').
- * - Speichert anschließend die publicUrl in der Tabelle 'ankauf_requests'.
+ *
+ * - Erzeugt aus den Bestätigungsdaten mit html2pdf.js ein zweiseitiges PDF
+ * - Lädt den erzeugten PDF‐Blob in den Supabase‐Bucket "lieferschein" hoch
+ * - Speichert anschließend die öffentliche PDF‐URL in der Tabelle "ankauf_requests"
  */
 export const usePdfUpload = () => {
   const { toast } = useToast();
@@ -69,7 +73,7 @@ export const usePdfUpload = () => {
         ankaufsNummer
       );
 
-      // 1) Basis-Validierung
+      // 1) Basis-Validierung: Fehlende Daten verhindern
       if (!confirmationData || !ankaufsNummer) {
         const msg = 'PDF Upload: Fehlende Bestätigungsdaten oder Ankaufsnummer.';
         console.warn(msg, { ankaufsNummer });
@@ -80,7 +84,7 @@ export const usePdfUpload = () => {
         return null;
       }
 
-      // 2) Doppel-Upload verhindern
+      // 2) Verhindere doppelten Upload: wenn schon läuft oder bereits erfolgreich
       if (pdfUploadStatus.uploading) {
         console.log('usePdfUpload: Ein Upload läuft bereits, breche ab.');
         return pdfUploadStatus.url;
@@ -94,61 +98,61 @@ export const usePdfUpload = () => {
       let tempContainer = null;
 
       try {
-        console.log('usePdfUpload: Erstelle Off-Screen-Container…');
-        // 3) Container außerhalb des Viewports anlegen (nicht display:none!)
+        console.log('usePdfUpload: Erstelle Off‐Screen‐Container…');
+        // 3) Off‐Screen‐Container anlegen (nicht display:none, sondern position außerhalb des Viewports)
         tempContainer = document.createElement('div');
         tempContainer.id = 'pdf_temp_container';
         Object.assign(tempContainer.style, {
           position: 'absolute',
           top: '-10000px',
           left: '0px',
-          width: '794px',   // A4-Breite in px (210mm × 96dpi ≈ 794px)
-          height: '1123px', // A4-Höhe in px (297mm × 96dpi ≈ 1123px)
+          width: '794px',   // A4‐Breite in px (210 mm × 96 dpi ≈ 794 px)
+          height: '1123px', // A4‐Höhe in px  (297 mm × 96 dpi ≈ 1123 px)
           backgroundColor: '#FFFFFF',
           overflow: 'visible',
         });
 
-        // 4) Stelle sicher, dass submissionDate gesetzt ist
+        // 4) Setze Einreich‐Datum, falls nicht bereits in confirmationData enthalten
         if (!confirmationData.submissionDate) {
           confirmationData.submissionDate = new Date().toISOString();
         }
 
-        // 5) Baue das vollständige dataForPdf-Objekt
+        // 5) Bereite alle Daten für die HTML‐Generierung vor,
+        //    inklusive QR‐Code und sämtlicher Felder, die pdfContentGenerator erwartet.
         const dataForPdf = {
           ...confirmationData,
           ankaufsNummer,
           qrCodeDataURL: qrCodeDataURL || '',
         };
 
-        // 6) Generiere das rohe HTML-Dokument (inkl. <html><head>…)
+        // 6) Erzeuge das vollständige HTML‐Dokument (inkl. <html>…<style>…)
         console.log('usePdfUpload: Generiere HTML via generatePurchaseConfirmationHTML…');
         let fullHtml = generatePurchaseConfirmationHTML(dataForPdf, 'fullDocument');
 
-        // 7) Entferne ggf. alle @import-Regeln direkt aus dem <style>-Block,
-        //    damit html2canvas *nicht* versucht, externe Fonts nachzuladen.
+        // 7) Entferne hier alle "@import url(…);" aus dem CSS‐Block,
+        //    damit html2canvas die Inline‐Styles korrekt rendert (ohne externe Fonts).
         fullHtml = fullHtml.replace(
           /<style>([\s\S]*?)<\/style>/,
-          (_, cssContent) =>
-            `<style>${stripCssImports(cssContent)}</style>`
+          (_, cssContent) => `<style>${stripCssImports(cssContent)}</style>`
         );
 
-        // Debug: Prüfe Länge und ersten Teil des HTML-Strings
+        // 8) Debug: Länge und ersten Teil des HTML anzeigen
         console.log('▶▶▶ htmlContent Länge:', fullHtml.length);
         console.log('▶▶▶ htmlContent (erste 300 Zeichen):', fullHtml.substring(0, 300));
 
-        // 8) Fülle den Container mit dem bereinigten HTML und hänge ihn ins DOM
+        // 9) Befülle den Container mit dem bereinigten HTML und hänge ihn ins DOM
         tempContainer.innerHTML = fullHtml;
         document.body.appendChild(tempContainer);
         console.log('usePdfUpload: Container eingefügt, warte kurz, damit CSS greift…');
 
-        // Kurzes Timeout, damit alle CSS-Regeln (ohne @import) angewendet werden
+        // Kurzer Delay, damit alle CSS‐Regeln (ohne @import) tatsächlich angewendet werden
         await new Promise((resolve) => setTimeout(resolve, 200));
 
-        // 9) Warte, bis alle Bilder (z. B. QR-Code) vollständig geladen sind
+        // 10) Warte, bis alle Bilder (z. B. QR‐Code‐PNG) geladen sind
         await waitForAllImagesInContainer(tempContainer);
         console.log('usePdfUpload: Alle Bilder geladen, starte html2pdf…');
 
-        // 10) Definiere html2pdf-Optionen
+        // 11) Definiere html2pdf‐Optionen
         const options = {
           margin: 0,
           filename: `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`,
@@ -163,23 +167,23 @@ export const usePdfUpload = () => {
           jsPDF: { unit: 'pt', format: [794, 1123], orientation: 'portrait' },
         };
 
-        // 11) Erzeuge den PDF-Blob (Seite 1 & Seite 2)
+        // 12) Erzeuge den PDF‐Blob (Seite 1 + Seite 2) via html2pdf.js
         const pdfBlob = await html2pdf().from(tempContainer).set(options).outputPdf('blob');
-        console.log('usePdfUpload: PDF-Blob erstellt, Größe:', pdfBlob.size, 'Bytes');
+        console.log('usePdfUpload: PDF‐Blob erstellt, Größe:', pdfBlob.size, 'Bytes');
 
-        // 12) Entferne den temporären Container sofort
+        // 13) Entferne den temporären Container sofort wieder
         if (tempContainer && document.body.contains(tempContainer)) {
           document.body.removeChild(tempContainer);
           tempContainer = null;
           console.log('usePdfUpload: Container entfernt.');
         }
 
-        // 13) Optionaler Größen-Check
+        // 14) Kleiner Größen‐Check: Blob sollte größer als ~2 KB sein
         if (!pdfBlob || pdfBlob.size < 2000) {
-          console.warn('usePdfUpload: PDF-Blob ist sehr klein oder leer:', pdfBlob?.size);
+          console.warn('usePdfUpload: PDF‐Blob ist sehr klein oder leer:', pdfBlob?.size);
         }
 
-        // 14) Upload in Supabase Storage (Bucket "lieferschein")
+        // 15) Lade den PDF‐Blob in Supabase Storage (Bucket "lieferschein") hoch
         console.log('usePdfUpload: Starte Upload zu Supabase…');
         const fileName = `begleitschein_${ankaufsNummer.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
         const { error: uploadError } = await supabase.storage
@@ -195,15 +199,15 @@ export const usePdfUpload = () => {
         }
         console.log('usePdfUpload: Upload erfolgreich.');
 
-        // 15) Hole die Public-URL des hochgeladenen PDFs
+        // 16) Hole die Public‐URL des hochgeladenen PDFs
         const { data: publicUrlData } = supabase.storage.from('lieferschein').getPublicUrl(fileName);
         const publicPdfUrl = publicUrlData?.publicUrl;
         if (!publicPdfUrl) {
-          throw new Error('usePdfUpload: Konnte keine öffentliche URL für PDF erhalten.');
+          throw new Error('usePdfUpload: Konnte keine öffentliche URL für das PDF erhalten.');
         }
         console.log('usePdfUpload: Public URL:', publicPdfUrl);
 
-        // 16) Speichere die URL in der Supabase-Tabelle "ankauf_requests"
+        // 17) Aktualisiere die Supabase‐Tabelle "ankauf_requests" mit der neuen PDF‐URL
         console.log('usePdfUpload: Aktualisiere Datenbank…');
         const { error: dbError } = await supabase
           .from('ankauf_requests')
@@ -216,7 +220,7 @@ export const usePdfUpload = () => {
         }
         console.log('usePdfUpload: DB-Update erfolgreich.');
 
-        // 17) Setze Erfolg-Status und gib URL zurück
+        // 18) Setze den PDF‐Upload‐Status auf erfolgreich und gib die URL zurück
         setPdfUploadStatus({ uploading: false, success: true, error: null, url: publicPdfUrl });
         return publicPdfUrl;
       } catch (err) {
@@ -224,7 +228,7 @@ export const usePdfUpload = () => {
         setPdfUploadStatus({
           uploading: false,
           success: false,
-          error: err.message || 'Unbekannter Fehler beim PDF-Upload.',
+          error: err.message || 'Unbekannter Fehler beim PDF‐Upload.',
           url: null,
         });
         toast({
@@ -234,7 +238,7 @@ export const usePdfUpload = () => {
         });
         return null;
       } finally {
-        // Sicherstellen, dass der Container, falls noch im DOM, entfernt wird
+        // Sicherstellen, dass der Container – falls noch im DOM – entfernt wird
         if (tempContainer && document.body.contains(tempContainer)) {
           document.body.removeChild(tempContainer);
         }
