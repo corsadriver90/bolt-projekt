@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { generatePdfExportHtml } from '@/lib/pdfExportHtml.js'; // <-- unbedingt .js am Ende!
+import { generatePurchaseConfirmationHTML } from '@/lib/pdfGenerator';
 import { useToast } from '@/components/ui/use-toast';
 import html2pdf from 'html2pdf.js';
 
@@ -115,17 +115,13 @@ export const usePdfUpload = () => {
           totalWeight = 0,
         } = confirmationData;
 
-        console.log('usePdfUpload: Generiere HTML via generatePdfExportHtml…');
-        const htmlContent = generatePdfExportHtml({
+        console.log('usePdfUpload: Generiere HTML via generatePurchaseConfirmationHTML…');
+        const htmlContent = generatePurchaseConfirmationHTML({
+          ...confirmationData,
           ankaufsNummer,
-          name,
-          email,
-          address,
-          totalWeight,
           date: dateString,
           qrCodeDataURL: qrCodeDataURL || '',
-          onlyBody: false, // wir wollen das komplette Dokument inklusive <head>
-        });
+        }, 'bodyContent');
 
         tempContainer.innerHTML = htmlContent;
         document.body.appendChild(tempContainer);
