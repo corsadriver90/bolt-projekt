@@ -10,7 +10,7 @@ import BegleitscheinSection from '@/components/confirmation/BegleitscheinSection
 import ReturnLabelSection from '@/components/confirmation/ReturnLabelSection';
 import ConfirmationDetails from '@/components/confirmation/ConfirmationDetails';
 import { QRCodeCanvas } from 'qrcode.react';
-import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // <-- unbedingt .js am Ende!
+import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // <- hier .js verwenden
 import { logAdminEvent } from '@/lib/utils';
 
 const ConfirmationPage = () => {
@@ -26,17 +26,15 @@ const ConfirmationPage = () => {
   // eslint-disable-next-line no-unused-vars
   const [numberOfGeneratedLabels, setNumberOfGeneratedLabels] = useState(0);
 
-  // Data-URL des QR-Codes für E-Mail und PDF
+  // QR-Code Data-URL für E-Mail und PDF
   const [qrCodeDataURLForEmailAndPdf, setQrCodeDataURLForEmailAndPdf] = useState('');
   const [isQrReadyForPdf, setIsQrReadyForPdf] = useState(false);
 
-  // Damit wir den PDF-Upload nicht mehrfach triggert
+  // Damit wir PDF-Upload nicht mehrfach triggert
   const [pdfTriggered, setPdfTriggered] = useState(false);
 
-  // Importierter Hook für den PDF-Export und Upload
   const { pdfUploadStatus, generateAndUploadPdf } = usePdfUpload();
 
-  // Scroll nach oben, wenn die Seite geladen wird
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
@@ -54,7 +52,9 @@ const ConfirmationPage = () => {
           source = 'localStorage';
         } catch (e) {
           console.error('Error parsing stored confirmation data:', e);
-          logAdminEvent('error', 'ConfirmationPage', 'Error parsing stored confirmation data', { error: e.message });
+          logAdminEvent('error', 'ConfirmationPage', 'Error parsing stored confirmation data', {
+            error: e.message,
+          });
           setError('Ungültige Bestätigungsdaten. Bitte starte den Prozess neu.');
           setIsLoading(false);
           return;
@@ -77,7 +77,7 @@ const ConfirmationPage = () => {
     setIsLoading(false);
   }, [location.state]);
 
-  // QR-Code aus dem Canvas (unsichtbar) extrahieren
+  // QR-Code Data-URL aus verstecktem Canvas extrahieren
   useEffect(() => {
     if (ankaufsNummer && !isQrReadyForPdf) {
       let attemptCount = 0;
@@ -90,7 +90,13 @@ const ConfirmationPage = () => {
           console.error(
             'ConfirmationPage: Max attempts reached for QR code generation. PDF upload might fail or be without QR.'
           );
-          logAdminEvent('error', 'ConfirmationPage', 'Max attempts for QR generation reached', { ankaufsNummer }, ankaufsNummer);
+          logAdminEvent(
+            'error',
+            'ConfirmationPage',
+            'Max attempts for QR generation reached',
+            { ankaufsNummer },
+            ankaufsNummer
+          );
           setIsQrReadyForPdf(true);
           return;
         }
@@ -106,33 +112,33 @@ const ConfirmationPage = () => {
               setQrCodeDataURLForEmailAndPdf(dataUrl);
               setIsQrReadyForPdf(true);
               console.log(
-                'ConfirmationPage: QR Code for PDF/Upload successfully generated and set after',
+                'ConfirmationPage: QR Code für PDF/Upload erfolgreich generiert nach',
                 attemptCount,
-                'attempts.'
+                'Versuchen.'
               );
               if (qrTimeoutId) clearTimeout(qrTimeoutId);
             } else {
               console.warn(
-                `ConfirmationPage: Generated QR Code Data URL is invalid or empty (Attempt ${attemptCount}/${maxAttempts}). Retrying...`,
+                `ConfirmationPage: Generated QR Code Data URL invalid oder zu kurz (Versuch ${attemptCount}/${maxAttempts}). Retry…`,
                 dataUrl ? dataUrl.substring(0, 50) : 'No Data URL'
               );
               qrTimeoutId = setTimeout(attemptGetQr, 500);
             }
           } else {
             console.warn(
-              `ConfirmationPage: QR Code Canvas not found yet (Attempt ${attemptCount}/${maxAttempts}). Retrying...`
+              `ConfirmationPage: QR Code Canvas nicht gefunden (Versuch ${attemptCount}/${maxAttempts}). Retry…`
             );
             qrTimeoutId = setTimeout(attemptGetQr, 500);
           }
         } catch (err) {
           console.error(
-            `ConfirmationPage: Error generating QR code data URL (Attempt ${attemptCount}/${maxAttempts}):`,
+            `ConfirmationPage: Error generating QR code data URL (Versuch ${attemptCount}/${maxAttempts}):`,
             err
           );
           logAdminEvent(
             'error',
             'ConfirmationPage',
-            `Error generating QR code for PDF/Email (Attempt ${attemptCount})`,
+            `Error generating QR code for PDF/Email (Versuch ${attemptCount})`,
             { error: err.message, ankaufsNummer },
             ankaufsNummer
           );
@@ -147,7 +153,7 @@ const ConfirmationPage = () => {
     }
   }, [ankaufsNummer, isQrReadyForPdf]);
 
-  // Wenn alle Daten vorliegen und QR bereit ist, PDF einmalig erzeugen & hochladen
+  // Einmaliges Auslösen von PDF-Generierung & Upload, wenn alle Daten da sind
   useEffect(() => {
     if (
       confirmationData &&
@@ -167,13 +173,15 @@ const ConfirmationPage = () => {
       );
       setPdfTriggered(true);
 
-      // Übergabe der Felder an generateAndUploadPdf
+      // Übergabe aller benötigten Felder an generateAndUploadPdf:
       generateAndUploadPdf(
         {
+          submissionDate: confirmationData.submissionDate,
           name: confirmationData.name,
           email: confirmationData.email,
           address: confirmationData.address,
           totalWeight: confirmationData.totalWeight || 0,
+          // falls dein Template weitere Felder erwartet, hier ergänzen
         },
         ankaufsNummer,
         qrCodeDataURLForEmailAndPdf
@@ -190,13 +198,10 @@ const ConfirmationPage = () => {
     pdfTriggered,
   ]);
 
-  // Callback, falls das Return-Label existiert / generiert wurde
   const handleLabelStatusChange = useCallback((labelExists, count, _urls) => {
     setHasExistingLabel(labelExists);
     setNumberOfGeneratedLabels(count);
   }, []);
-
-  // --- JSX-Rendering ---
 
   if (isLoading) {
     return (
@@ -256,7 +261,8 @@ const ConfirmationPage = () => {
               Ankauf Erfolgreich!
             </CardTitle>
             <CardDescription className="text-emerald-100 text-lg md:text-xl text-center mt-3">
-              Deine Ankaufsnummer: <strong className="font-semibold tracking-wider">{ankaufsNummer}</strong>
+              Deine Ankaufsnummer:{' '}
+              <strong className="font-semibold tracking-wider">{ankaufsNummer}</strong>
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6 md:p-8 space-y-8">
@@ -286,8 +292,8 @@ const ConfirmationPage = () => {
             <div className="text-center pt-4 space-y-2">
               {pdfUploadStatus.uploading && (
                 <p className="text-blue-600 dark:text-blue-400 text-sm flex items-center justify-center">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Begleitschein PDF wird
-                  im Hintergrund verarbeitet...
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Begleitschein PDF wird im
+                  Hintergrund verarbeitet...
                 </p>
               )}
               {pdfUploadStatus.success && pdfUploadStatus.url && (
@@ -297,7 +303,8 @@ const ConfirmationPage = () => {
               )}
               {pdfUploadStatus.error && (
                 <p className="text-red-600 dark:text-red-400 text-sm">
-                  Fehler beim Erstellen des Begleitschein PDFs: {pdfUploadStatus.error}
+                  Fehler beim Erstellen des Begleitschein PDFs:{' '}
+                  {pdfUploadStatus.error}
                 </p>
               )}
             </div>
