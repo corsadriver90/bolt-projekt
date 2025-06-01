@@ -10,7 +10,7 @@ import BegleitscheinSection from '@/components/confirmation/BegleitscheinSection
 import ReturnLabelSection from '@/components/confirmation/ReturnLabelSection';
 import ConfirmationDetails from '@/components/confirmation/ConfirmationDetails';
 import { QRCodeCanvas } from 'qrcode.react';
-import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // Fixed file extension from .jsx to .js
+import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // Hook mit dem neuen PDF-Export
 import { logAdminEvent } from '@/lib/utils';
 
 const ConfirmationPage = () => {
