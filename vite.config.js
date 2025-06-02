@@ -117,7 +117,7 @@ window.fetch = function(...args) {
 			if (!response.ok && !isDocumentResponse) {
 					const responseClone = response.clone();
 					const errorFromRes = await responseClone.text();
-					const requestUrl = response.url;
+					const requestUrl = response.url || 'unknown URL';
 					console.error(\`Fetch error from \${requestUrl}: \${errorFromRes}\`);
 			}
 
