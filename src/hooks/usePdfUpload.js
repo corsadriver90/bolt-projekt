@@ -111,7 +111,7 @@ export const usePdfUpload = () => {
         };
 
         // 4) **Nur BODY-Content** erzeugen (kein <html> oder <head>)
-        const bodyContent = generatePurchaseConfirmationHTML(dataForPdf, 'bodyContent');
+        const bodyContent = generatePurchaseConfirmationHTML(dataForPdf);
         //    bodyContent ist z. B. "<div class='pdf-container'>…Seite1 + Seite2…</div>"
 
         // 5) Vollständiges CSS holen und "@import"-Zeilen entfernen
