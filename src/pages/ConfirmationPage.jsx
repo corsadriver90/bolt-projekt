@@ -8,7 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
     import ReturnLabelSection from '@/components/confirmation/ReturnLabelSection';
     import ConfirmationDetails from '@/components/confirmation/ConfirmationDetails';
     import { QRCodeCanvas } from 'qrcode.react';
-    import { usePdfUpload } from '@/hooks/usePdfUpload.jsx'; // Explicitly use .jsx
+    import { usePdfUpload } from '@/hooks/usePdfUpload.js'; // Explicitly use .jsx
     import { logAdminEvent } from '@/lib/utils';
 
     const ConfirmationPage = () => {
